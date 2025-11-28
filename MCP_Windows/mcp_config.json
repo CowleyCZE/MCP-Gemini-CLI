@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "windows-control": {
+      "command": "python",
+      "args": ["c:\\Users\\Cowley\\OneDrive\\GitHub_Repo\\MCP_Gemini\\MCP_Windows\\windows_control.py"],
+      "transport": "stdio"
+    }
+  }
+}
