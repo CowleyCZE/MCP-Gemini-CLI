@@ -997,10 +997,10 @@ func _vec2(arr) -> Vector2:
 	return Vector2(float(arr[0]), float(arr[1]))
 
 func _notification(what):
-    if what == NOTIFICATION_PREDELETE:
-        if server:
-            server.stop()
-        print("✓ TCP Server zastaven")
+	if what == NOTIFICATION_PREDELETE:
+		if server:
+			server.stop()
+		print("✓ TCP Server zastaven")
 
 func _get_world_env() -> WorldEnvironment:
 	var root = EditorInterface.get_edited_scene_root()

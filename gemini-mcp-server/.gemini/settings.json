@@ -6,9 +6,9 @@
   },
   "mcpServers": {
     "godot": {
-      "command": "c:\\Users\\PCDELL6KC\\Documents\\Godot\\gemini-mcp-server\\venv\\Scripts\\python.exe",
+      "command": "c:\\Users\\PCDELL6KC\\Documents\\Godot\\MCP-Gemini-CLI\\gemini-mcp-server\\venv\\Scripts\\python.exe",
       "args": [
-        "c:\\Users\\PCDELL6KC\\Documents\\Godot\\gemini-mcp-server\\godot_mcp_server.py"
+        "c:\\Users\\PCDELL6KC\\Documents\\Godot\\MCP-Gemini-CLI\\gemini-mcp-server\\godot_mcp_server.py"
       ],
       "env": {
         "PYTHONUNBUFFERED": "1",
