@@ -93,6 +93,18 @@ async def list_tools() -> list[Tool]:
         # ZÁKLADNÍ PRÁCE S UZLY (NODE OPERATIONS)
         # ====================================================================
         Tool(
+            name="godot_search_files",
+            description="Vyhledá soubory v projektu podle názvu nebo přípony. POUŽIJTE PŘED VYTVÁŘENÍM NOVÝCH SOUBORŮ pro ověření existence nebo pro nalezení assets (textury, modely, skripty).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Hledaný text v názvu souboru (např. 'player', 'grass'). Prázdné = vše."},
+                    "extensions": {"type": "array", "items": {"type": "string"}, "description": "Filtr přípon (např. ['.gd', '.tscn', '.png'])"},
+                    "root": {"type": "string", "default": "res://", "description": "Kde začít hledat"}
+                }
+            }
+        ),
+        Tool(
             name="godot_create_node",
             description="Vytvoří nový node v aktivní scéně Godot Editoru.",
             inputSchema={
@@ -206,11 +218,15 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="godot_save_scene",
-            description="Uloží aktuální scénu.",
+            description="Uloží aktuální scénu. BEZPEČNOSTNÍ FUNKCE: Pokud zadáte 'save_path' a soubor již existuje, systém ho nepřepíše, ale automaticky vytvoří kopii s číselným suffixem (např. level_1.tscn).",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "save_path": {"type": "string", "description": "Cesta (res://scenes/level1.tscn) nebo prázdné pro přepsání", "default": ""}
+                    "save_path": {
+                        "type": "string", 
+                        "description": "Cesta pro uložení (res://scenes/level.tscn). Pokud necháte prázdné, přepíše se aktuálně otevřený soubor bez změny názvu.", 
+                        "default": ""
+                    }
                 }
             }
         ),
@@ -485,12 +501,13 @@ async def list_tools() -> list[Tool]:
         # ====================================================================
         Tool(
             name="godot_create_script",
-            description="Vytvoří nebo přepíše soubor skriptu (.gd).",
+            description="Vytvoří nový skript. POZOR: Pokud soubor existuje, systém automaticky vytvoří unikátní název (např. script_1.gd), pokud není nastaveno overwrite=True.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "Cesta (res://scripts/player.gd)"},
-                    "content": {"type": "string", "description": "Obsah skriptu"}
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                    "overwrite": {"type": "boolean", "description": "Pokud True, přepíše existující soubor. Pokud False (default), vytvoří nový název.", "default": False}
                 },
                 "required": ["path", "content"]
             }
@@ -573,6 +590,13 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             command = {"cmd": "set_owner_recursive", "path": arguments.get("root_path")}
 
         # --- FILESYSTEM OPS ---
+        elif name == "godot_search_files":
+            command = {
+                "cmd": "search_files",
+                "query": arguments.get("query", ""),
+                "extensions": arguments.get("extensions", []),
+                "root": arguments.get("root", "res://")
+            }
         elif name == "godot_list_files":
             command = {"cmd": "list_dir", "path": arguments.get("path", "res://"), "recursive": arguments.get("recursive", False), "extensions": arguments.get("extensions", [])}
         elif name == "godot_make_directory":
@@ -626,8 +650,13 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
 
         # --- SCRIPT OPS ---
-        elif name == "godot_create_script":
-            command = {"cmd": "create_script", "path": arguments.get("path"), "content": arguments.get("content")}
+        elif name == "godot_create_script": # Aktualizace pro overwrite parametr
+             command = {
+                "cmd": "create_script", 
+                "path": arguments.get("path"), 
+                "content": arguments.get("content"),
+                "overwrite": arguments.get("overwrite", False)
+            }
         elif name == "godot_read_script":
             command = {"cmd": "get_script_content", "path": arguments.get("path")}
         elif name == "godot_attach_script":

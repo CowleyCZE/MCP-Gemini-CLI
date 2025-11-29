@@ -59,6 +59,7 @@ func process_command(json_string: String) -> String:
 	# Dispatcher příkazů
 	match cmd_type:
 		# --- FILESYSTEM ---
+		"search_files": return search_files(command)
 		"list_dir": return list_directory(command)
 		"make_dir": return make_directory(command)
 		"remove_file": return remove_file(command)
@@ -112,6 +113,46 @@ func process_command(json_string: String) -> String:
 # ============================================================================
 # FILESYSTEM
 # ============================================================================
+
+func search_files(command: Dictionary) -> String:
+	var query = command.get("query", "").to_lower()
+	var extensions = command.get("extensions", []) # Volitelné filtrování přípon
+	var root = command.get("root", "res://")
+	
+	var results = []
+	_search_recursive(root, query, extensions, results)
+	
+	# Omezíme výsledky, aby se nezahltil kontext (max 50 nálezů)
+	if results.size() > 50:
+		var total = results.size()
+		results = results.slice(0, 50)
+		return JSON.stringify({"status": "ok", "files": results, "message": "Nalezeno %d souborů (zobrazeno prvních 50). Upřesni dotaz." % total})
+		
+	return JSON.stringify({"status": "ok", "files": results})
+
+func _search_recursive(path: String, query: String, extensions: Array, results: Array):
+	var dir = DirAccess.open(path)
+	if dir:
+		dir.list_dir_begin()
+		var file_name = dir.get_next()
+		while file_name != "":
+			if file_name != "." and file_name != "..":
+				var full_path = path.path_join(file_name)
+				
+				if dir.current_is_dir():
+					# Pokud složka obsahuje query, přidáme ji taky
+					if query == "" or query in file_name.to_lower():
+						pass # Složky zatím nepřidáváme do výsledků, jen rekurzivně prohledáváme
+					_search_recursive(full_path, query, extensions, results)
+				else:
+					# Kontrola souboru
+					var match_query = (query == "" or query in file_name.to_lower())
+					var match_ext = (extensions.is_empty() or ("." + file_name.get_extension()) in extensions)
+					
+					if match_query and match_ext:
+						results.append(full_path)
+						
+			file_name = dir.get_next()
 
 func list_directory(command: Dictionary) -> String:
 	var path = command.get("path", "res://")
@@ -592,15 +633,24 @@ func get_scene_tree() -> String:
 	return JSON.stringify({"status": "ok", "tree": build_tree_recursive(s)})
 
 func save_scene(command: Dictionary) -> String:
-	var path = command.get("path", "")
-	if path != "":
-		var packed = PackedScene.new()
-		packed.pack(EditorInterface.get_edited_scene_root())
-		var err = ResourceSaver.save(packed, path)
-		if err != OK: return JSON.stringify({"status": "error", "message": "Chyba ukládání: " + str(err)})
-	else:
+	var requested_path = command.get("path", "")
+	
+	if requested_path == "":
 		EditorInterface.save_scene()
-	return JSON.stringify({"status": "ok", "message": "Uloženo"})
+		return JSON.stringify({"status": "ok", "message": "Aktuální scéna uložena"})
+		
+	var final_path = _get_unique_path(requested_path)
+	
+	var packed = PackedScene.new()
+	var result = packed.pack(EditorInterface.get_edited_scene_root())
+	
+	if result == OK:
+		var err = ResourceSaver.save(packed, final_path)
+		if err == OK:
+			return JSON.stringify({"status": "ok", "message": "Uloženo jako: " + final_path, "path": final_path})
+		return JSON.stringify({"status": "error", "message": "Chyba ResourceSaver: " + str(err)})
+		
+	return JSON.stringify({"status": "error", "message": "Chyba při packování scény"})
 
 func create_scene(command: Dictionary) -> String:
 	var path = command.get("save_path", "")
@@ -747,15 +797,25 @@ func _modify_collision_bitmask(command: Dictionary, prop: String) -> String:
 # ============================================================================
 
 func create_script(command: Dictionary) -> String:
-	var path = command.get("path", "")
+	var requested_path = command.get("path", "")
 	var content = command.get("content", "")
+	var overwrite = command.get("overwrite", false) # Možnost vynutit přepsání
 	
-	var file = FileAccess.open(path, FileAccess.WRITE)
+	var final_path = requested_path
+	if not overwrite:
+		final_path = _get_unique_path(requested_path)
+	
+	var file = FileAccess.open(final_path, FileAccess.WRITE)
 	if file:
 		file.store_string(content)
 		file.close()
 		EditorInterface.get_resource_filesystem().scan()
-		return JSON.stringify({"status": "ok", "message": "Skript vytvořen"})
+		
+		var msg = "Skript vytvořen"
+		if final_path != requested_path:
+			msg = "Soubor existoval. Vytvořen nový název: " + final_path
+			
+		return JSON.stringify({"status": "ok", "message": msg, "path": final_path})
 	return JSON.stringify({"status": "error", "message": "Chyba zápisu"})
 
 func save_script(command: Dictionary) -> String:
@@ -804,6 +864,29 @@ func get_script_content(command: Dictionary) -> String:
 # ============================================================================
 # POMOCNÉ FUNKCE (HELPERS)
 # ============================================================================
+
+func _get_unique_path(path: String) -> String:
+	# Pokud soubor neexistuje, cesta je bezpečná
+	if not FileAccess.file_exists(path) and not DirAccess.dir_exists_absolute(path):
+		return path
+	
+	var base_dir = path.get_base_dir()
+	var filename = path.get_file()
+	var extension = filename.get_extension()
+	var basename = filename.get_basename()
+	
+	var counter = 1
+	var new_path = path
+	
+	# Cyklus dokud nenajdeme volné jméno
+	while FileAccess.file_exists(new_path) or DirAccess.dir_exists_absolute(new_path):
+		var new_filename = basename + "_" + str(counter)
+		if extension != "":
+			new_filename += "." + extension
+		new_path = base_dir.path_join(new_filename)
+		counter += 1
+		
+	return new_path
 
 func build_tree_recursive(node: Node) -> Dictionary:
 	var tree = {

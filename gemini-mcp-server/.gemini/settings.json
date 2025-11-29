@@ -1,15 +1,20 @@
 {
+  "security": {
+    "auth": {
+      "selectedType": "oauth-personal"
+    }
+  },
   "mcpServers": {
     "godot": {
-      "command": "C:\\Users\\Cowley\\Documents\\gemini-mcp-server\\venv\\Scripts\\python.exe",
+      "command": "c:\\Users\\PCDELL6KC\\Documents\\Godot\\gemini-mcp-server\\venv\\Scripts\\python.exe",
       "args": [
-        "C:\\Users\\Cowley\\Documents\\gemini-mcp-server\\godot_mcp_server.py"
+        "c:\\Users\\PCDELL6KC\\Documents\\Godot\\gemini-mcp-server\\godot_mcp_server.py"
       ],
       "env": {
         "PYTHONUNBUFFERED": "1",
         "PYTHONIOENCODING": "utf-8"
       },
-      "timeout": 15000
+      "timeout": 30000
     }
   }
 }
