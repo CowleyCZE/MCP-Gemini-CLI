@@ -58,6 +58,11 @@ func process_command(json_string: String) -> String:
 	
 	# Dispatcher příkazů
 	match cmd_type:
+		# --- ENV ---
+		"env_create": return env_create()
+		"env_set_background": return env_set_background(command)
+		"env_set_effect": return env_set_effect(command)
+		"env_set_camera_attributes": return env_set_camera_attributes(command)
 		# --- FILESYSTEM ---
 		"search_files": return search_files(command)
 		"list_dir": return list_directory(command)
@@ -992,7 +997,172 @@ func _vec2(arr) -> Vector2:
 	return Vector2(float(arr[0]), float(arr[1]))
 
 func _notification(what):
-	if what == NOTIFICATION_PREDELETE:
-		if server:
-			server.stop()
-		print("✓ TCP Server zastaven")
+    if what == NOTIFICATION_PREDELETE:
+        if server:
+            server.stop()
+        print("✓ TCP Server zastaven")
+
+func _get_world_env() -> WorldEnvironment:
+	var root = EditorInterface.get_edited_scene_root()
+	if not root:
+		return null
+	for child in root.get_children():
+		if child is WorldEnvironment:
+			return child
+	var we = WorldEnvironment.new()
+	we.name = "WorldEnvironment"
+	root.add_child(we)
+	we.owner = root
+	return we
+
+func env_create() -> String:
+	var we = _get_world_env()
+	if not we:
+		return JSON.stringify({"status": "error", "message": "Nelze vytvořit WorldEnvironment"})
+	if not we.environment:
+		we.environment = Environment.new()
+	if not we.camera_attributes:
+		we.camera_attributes = CameraAttributesPractical.new()
+	return JSON.stringify({"status": "ok", "message": "WorldEnvironment inicializován", "path": str(we.get_path())})
+
+func env_set_background(command: Dictionary) -> String:
+	var we = _get_world_env()
+	if not we or not we.environment:
+		return JSON.stringify({"status": "error", "message": "Chybí Environment"})
+	var env = we.environment
+	var mode = command.get("mode", "clear_color")
+	var energy = float(command.get("energy", 1.0))
+	var col_arr = command.get("color", [0, 0, 0])
+	var color = _arr_to_col(col_arr)
+	match mode:
+		"clear_color":
+			env.background_mode = Environment.BG_CLEAR_COLOR
+		"custom_color":
+			env.background_mode = Environment.BG_COLOR
+			env.background_color = color
+		"sky":
+			env.background_mode = Environment.BG_SKY
+			if not env.sky:
+				var sky = Sky.new()
+				sky.sky_material = ProceduralSkyMaterial.new()
+				env.sky = sky
+		"canvas":
+			env.background_mode = Environment.BG_CANVAS
+		_:
+			pass
+	env.background_energy_multiplier = energy
+	return JSON.stringify({"status": "ok", "message": "Pozadí nastaveno"})
+
+func env_set_effect(command: Dictionary) -> String:
+	var we = _get_world_env()
+	if not we or not we.environment:
+		return JSON.stringify({"status": "error", "message": "Chybí Environment (spusť godot_env_create)"})
+	var env = we.environment
+	var type = command.get("type", "")
+	var enabled = bool(command.get("enabled", true))
+	var p = command.get("params", {})
+	match type:
+		"tonemap":
+			if "mode" in p:
+				env.tonemap_mode = int(p.mode)
+			if "exposure" in p:
+				env.tonemap_exposure = float(p.exposure)
+			if "white" in p:
+				env.tonemap_white = float(p.white)
+		"glow":
+			env.glow_enabled = enabled
+			if "intensity" in p:
+				env.glow_intensity = float(p.intensity)
+			if "strength" in p:
+				env.glow_strength = float(p.strength)
+			if "bloom" in p:
+				env.glow_bloom = float(p.bloom)
+			if "blend_mode" in p:
+				env.glow_blend_mode = int(p.blend_mode)
+			if "hdr_threshold" in p:
+				env.glow_hdr_threshold = float(p.hdr_threshold)
+		"fog":
+			env.fog_enabled = enabled
+			if "density" in p:
+				env.fog_density = float(p.density)
+			if "light_color" in p:
+				env.fog_light_color = _arr_to_col(p.light_color)
+			if "sun_scatter" in p:
+				env.fog_sun_scatter = float(p.sun_scatter)
+			if "height_density" in p:
+				env.fog_height_density = float(p.height_density)
+		"volumetric_fog":
+			env.volumetric_fog_enabled = enabled
+			if "density" in p:
+				env.volumetric_fog_density = float(p.density)
+			if "albedo" in p:
+				env.volumetric_fog_albedo = _arr_to_col(p.albedo)
+			if "emission" in p:
+				env.volumetric_fog_emission = _arr_to_col(p.emission)
+			if "length" in p:
+				env.volumetric_fog_length = float(p.length)
+			if "detail_spread" in p:
+				env.volumetric_fog_detail_spread = float(p.detail_spread)
+		"ssao":
+			env.ssao_enabled = enabled
+			if "radius" in p:
+				env.ssao_radius = float(p.radius)
+			if "intensity" in p:
+				env.ssao_intensity = float(p.intensity)
+			if "power" in p:
+				env.ssao_power = float(p.power)
+			if "detail" in p:
+				env.ssao_detail = float(p.detail)
+			if "horizon" in p:
+				env.ssao_horizon = float(p.horizon)
+		"ssil":
+			env.ssil_enabled = enabled
+			if "radius" in p:
+				env.ssil_radius = float(p.radius)
+			if "intensity" in p:
+				env.ssil_intensity = float(p.intensity)
+		"sdfgi":
+			env.sdfgi_enabled = enabled
+			if "use_occlusion" in p:
+				env.sdfgi_use_occlusion = bool(p.use_occlusion)
+			if "bounce_feedback" in p:
+				env.sdfgi_bounce_feedback = float(p.bounce_feedback)
+			if "cascades" in p:
+				env.sdfgi_cascades = int(p.cascades)
+			if "min_cell_size" in p:
+				env.sdfgi_min_cell_size = float(p.min_cell_size)
+		"adjustment":
+			env.adjustment_enabled = enabled
+			if "brightness" in p:
+				env.adjustment_brightness = float(p.brightness)
+			if "contrast" in p:
+				env.adjustment_contrast = float(p.contrast)
+			if "saturation" in p:
+				env.adjustment_saturation = float(p.saturation)
+		_:
+			return JSON.stringify({"status": "error", "message": "Neznámý efekt: " + type})
+	return JSON.stringify({"status": "ok", "message": "Efekt " + type + " aktualizován"})
+
+func env_set_camera_attributes(command: Dictionary) -> String:
+	var we = _get_world_env()
+	if not we:
+		return JSON.stringify({"status": "error", "message": "WorldEnvironment nenalezen"})
+	if not we.camera_attributes or not (we.camera_attributes is CameraAttributesPractical):
+		we.camera_attributes = CameraAttributesPractical.new()
+	var cam = we.camera_attributes
+	if "auto_exposure" in command:
+		cam.auto_exposure_enabled = bool(command.auto_exposure)
+	if "exposure_multiplier" in command:
+		cam.exposure_multiplier = float(command.exposure_multiplier)
+	if "exposure_sensitivity" in command:
+		cam.exposure_sensitivity = float(command.exposure_sensitivity)
+	if "auto_exposure_speed" in command:
+		cam.auto_exposure_speed = float(command.auto_exposure_speed)
+	if "auto_exposure_scale" in command:
+		cam.auto_exposure_scale = float(command.auto_exposure_scale)
+	return JSON.stringify({"status": "ok", "message": "CameraAttributes nastaveny"})
+
+func _arr_to_col(arr) -> Color:
+	if typeof(arr) == TYPE_ARRAY and arr.size() >= 3:
+		return Color(float(arr[0]), float(arr[1]), float(arr[2]))
+	return Color(1, 1, 1)

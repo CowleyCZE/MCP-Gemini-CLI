@@ -279,6 +279,59 @@ async def list_tools() -> list[Tool]:
             }
         ),
 
+        Tool(
+            name="godot_env_create",
+            description="Vytvoří WorldEnvironment (pokud neexistuje) a inicializuje v něm Environment a CameraAttributesPractical.",
+            inputSchema={"type": "object", "properties": {}}
+        ),
+        Tool(
+            name="godot_env_set_background",
+            description="Nastaví pozadí scény (Obloha, Barva).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "mode": {"type": "string", "enum": ["clear_color", "custom_color", "sky", "canvas"], "description": "Typ pozadí."},
+                    "color": {"type": "array", "items": {"type": "number"}, "description": "[r, g, b] pro custom_color"},
+                    "energy": {"type": "number", "description": "Multiplikátor energie (jasu). Default: 1.0"}
+                },
+                "required": ["mode"]
+            }
+        ),
+        Tool(
+            name="godot_env_set_effect",
+            description="Pokročilá konfigurace efektů Environment.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "effect_type": {
+                        "type": "string",
+                        "enum": ["tonemap", "glow", "fog", "volumetric_fog", "ssao", "ssil", "sdfgi", "adjustment"],
+                        "description": "Kterou sekci Environmentu upravit."
+                    },
+                    "enabled": {"type": "boolean", "description": "Zapnout/Vypnout efekt (netýká se tonemap)."},
+                    "params": {
+                        "type": "object",
+                        "description": "Klíč-hodnota dle dokumentace Godot.\nGlow: intensity, strength, bloom, blend_mode (0-4)\nFog: density, light_color, sun_scatter, height_density\nVolumetricFog: density, albedo, emission, length\nSSAO: radius, intensity, power, detail\nSDFGI: bounce_feedback, cascades, min_cell_size\nAdjustment: brightness, contrast, saturation\nTonemap: mode (0=Linear, 2=Filmic, 3=ACES), exposure, white"
+                    }
+                },
+                "required": ["effect_type"]
+            }
+        ),
+        Tool(
+            name="godot_env_camera_attributes",
+            description="Nastaví CameraAttributes (Expozice, Auto-Exposure).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "auto_exposure": {"type": "boolean", "description": "Zapnout automatickou expozici?"},
+                    "exposure_multiplier": {"type": "number", "description": "Základní jas (Default 1.0)"},
+                    "exposure_sensitivity": {"type": "number", "description": "ISO citlivost (Default 100.0)"},
+                    "auto_exposure_speed": {"type": "number", "description": "Rychlost adaptace oka (Default 0.5)"},
+                    "auto_exposure_scale": {"type": "number", "description": "Škála efektu (Default 0.4)"}
+                }
+            }
+        ),
+
         # ====================================================================
         # MESH A FYZIKA (MESH & PHYSICS)
         # ====================================================================
@@ -588,6 +641,26 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             command = {"cmd": "add_child_scene", "scene_path": arguments.get("scene_path"), "parent": arguments.get("parent_path", ""), "name": arguments.get("name", "")}
         elif name == "godot_fix_ownership":
             command = {"cmd": "set_owner_recursive", "path": arguments.get("root_path")}
+
+        elif name == "godot_env_create":
+            command = {"cmd": "env_create"}
+        elif name == "godot_env_set_background":
+            command = {
+                "cmd": "env_set_background",
+                "mode": arguments.get("mode"),
+                "color": arguments.get("color", [0, 0, 0]),
+                "energy": arguments.get("energy", 1.0)
+            }
+        elif name == "godot_env_set_effect":
+            command = {
+                "cmd": "env_set_effect",
+                "type": arguments.get("effect_type"),
+                "enabled": arguments.get("enabled", True),
+                "params": arguments.get("params", {})
+            }
+        elif name == "godot_env_camera_attributes":
+            command = arguments.copy()
+            command["cmd"] = "env_set_camera_attributes"
 
         # --- FILESYSTEM OPS ---
         elif name == "godot_search_files":
