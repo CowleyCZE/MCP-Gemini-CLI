@@ -101,7 +101,8 @@ func process_command(json_string: String) -> String:
 		# --- MESH A FYZIKA (bude v další části) ---
 		"set_mesh": return set_mesh(command)
 		"add_collision_shape": return add_collision_shape(command)
-		"get_collision_layers": return get_collision_layers()
+		"get_collision_layers": return get_collision_layers(command) # POZOR: nyní bere command
+		"set_collision_layer_name": return set_collision_layer_name(command)
 		"set_collision_layer": return _modify_collision_bitmask(command, "collision_layer")
 		"set_collision_mask": return _modify_collision_bitmask(command, "collision_mask")
 		
@@ -774,12 +775,24 @@ func add_collision_shape(command: Dictionary) -> String:
 	
 	return JSON.stringify({"status": "ok", "message": "Shape přidán", "path": str(node.get_path())})
 
-func get_collision_layers() -> String:
+func get_collision_layers(command: Dictionary) -> String:
+	var type = command.get("type", "3D")
+	var prefix = "layer_names/3d_physics/layer_"
+	if type == "2D":
+		prefix = "layer_names/2d_physics/layer_"
 	var layers = {}
 	for i in range(1, 33):
-		var l3d = ProjectSettings.get_setting("layer_names/3d_physics/layer_" + str(i))
-		if l3d and l3d != "": layers["3d_layer_" + str(i)] = l3d
-	return JSON.stringify({"status": "ok", "layers": layers})
+		var setting_path = prefix + str(i)
+		if ProjectSettings.has_setting(setting_path):
+			var name = ProjectSettings.get_setting(setting_path)
+			if str(name) != "":
+				layers[str(i)] = name
+	return JSON.stringify({
+		"status": "ok",
+		"type": type,
+		"layers": layers,
+		"message": "Nalezeno %d pojmenovaných vrstev." % layers.size()
+	})
 
 func _modify_collision_bitmask(command: Dictionary, prop: String) -> String:
 	var path = command.get("path", "")
@@ -1166,3 +1179,28 @@ func _arr_to_col(arr) -> Color:
 	if typeof(arr) == TYPE_ARRAY and arr.size() >= 3:
 		return Color(float(arr[0]), float(arr[1]), float(arr[2]))
 	return Color(1, 1, 1)
+
+# ============================================================================
+# PROJECT SETTINGS (PHYSICS LAYERS)
+# ============================================================================
+
+func set_collision_layer_name(command: Dictionary) -> String:
+	var idx = int(command.get("index", 0))
+	var new_name = command.get("name", "")
+	var type = command.get("type", "3D")
+	if idx < 1 or idx > 32:
+		return JSON.stringify({"status": "error", "message": "Index vrstvy musí být 1-32."})
+	var setting_path = "layer_names/3d_physics/layer_" + str(idx)
+	if type == "2D":
+		setting_path = "layer_names/2d_physics/layer_" + str(idx)
+	ProjectSettings.set_setting(setting_path, new_name)
+	var err = ProjectSettings.save()
+	if err != OK:
+		return JSON.stringify({"status": "error", "message": "Nepodařilo se uložit ProjectSettings. Error: " + str(err)})
+	var action = "Přejmenována"
+	if new_name == "":
+		action = "Smazána/Resetována"
+	return JSON.stringify({
+		"status": "ok",
+		"message": "%s vrstva %d (%s) -> '%s'" % [action, idx, type, new_name]
+	})

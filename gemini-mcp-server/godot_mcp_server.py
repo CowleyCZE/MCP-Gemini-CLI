@@ -367,8 +367,26 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="godot_get_collision_layers",
-            description="Získá názvy fyzikálních vrstev (Layers) definovaných v nastavení projektu.",
-            inputSchema={"type": "object", "properties": {}}
+            description="Vrátí mapu nastavených fyzikálních vrstev (Physics Layers).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["2D", "3D"], "default": "3D", "description": "Typ fyziky (2D nebo 3D)."}
+                }
+            }
+        ),
+        Tool(
+            name="godot_set_collision_layer_name",
+            description="Přejmenuje, vytvoří nebo smaže název fyzikální vrstvy v Project Settings.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer", "minimum": 1, "maximum": 32, "description": "Číslo vrstvy (1-32)."},
+                    "name": {"type": "string", "description": "Nový název vrstvy. Pro smazání/resetování nechte prázdné."},
+                    "type": {"type": "string", "enum": ["2D", "3D"], "default": "3D"}
+                },
+                "required": ["index", "name"]
+            }
         ),
         Tool(
             name="godot_set_physics_layer",
@@ -687,10 +705,12 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         elif name == "godot_add_collision_shape":
             command = {"cmd": "add_collision_shape", "parent": arguments.get("parent_path"), "shape_type": arguments.get("shape_type"), "params": arguments.get("params", {}), "name": arguments.get("name", "CollisionShape")}
         elif name == "godot_get_collision_layers":
-            command = {"cmd": "get_collision_layers"}
+            command = {"cmd": "get_collision_layers", "type": arguments.get("type", "3D")}
         elif name == "godot_set_physics_layer":
             cmd_type = "set_collision_layer" if arguments.get("type") == "layer" else "set_collision_mask"
             command = {"cmd": cmd_type, "path": arguments.get("node_path"), "layer": arguments.get("layer_index"), "enabled": arguments.get("enabled", True)}
+        elif name == "godot_set_collision_layer_name":
+            command = {"cmd": "set_collision_layer_name", "index": arguments.get("index"), "name": arguments.get("name"), "type": arguments.get("type", "3D")}
 
         # --- TERRAIN 3D OPS ---
         elif name == "godot_terrain_create":
