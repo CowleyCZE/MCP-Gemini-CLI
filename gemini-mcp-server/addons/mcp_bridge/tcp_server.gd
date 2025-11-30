@@ -80,6 +80,7 @@ func process_command(json_string: String) -> String:
 		"terrain_get_height": return terrain_get_height(command)
 		"set_terrain_collision": return set_terrain_collision(command) # Alias pro zpětnou kompatibilitu
 		"terrain_import_heightmap": return terrain_import_heightmap(command)
+		"terrain_task": return terrain_task(command)
 		
 		# --- UZLY (bude v další části) ---
 		"create_node": return create_node(command)
@@ -403,26 +404,21 @@ func terrain_import_heightmap(command: Dictionary) -> String:
 		return JSON.stringify({"status": "error", "message": "Nelze načíst obrázek (Error code: " + str(err) + ")"})
 
 	# 3. Výpočet scale a offset
-	# Terrain3D importuje 0..1 (z obrázku) -> offset..scale
-	# Rozsah: scale je rozdíl (max - min), offset je min.
 	var scale = max_height - min_height
 	var offset = min_height
 	var pos_vec = Vector3(position_arr[0], position_arr[1], position_arr[2])
 
-	# 4. Volání import_images
-	# Signatura: import_images(images: Array[Image], global_position: Vector3, offset: float, scale: float)
-	# Pole [img] obsahuje heightmapu jako první prvek.
-	# Poznámka: Pokud byste importovali i control mapy, byly by další v poli.
-	
+	# 4. Volání import_images - OPRAVA PRO VERZI 1.0+
+	# Musíme předat pole [Height, Control, Color]. Použijeme null pro mapy, které nemáme.
 	if data.has_method("import_images"):
-		data.import_images([img], pos_vec, offset, scale)
-		
-		# Vynutit update vizuálu
+		var images_array = [img, null, null]
+		data.import_images(images_array, pos_vec, offset, scale)
+		# Vynutit update vizuálu a kolizí
 		if t.has_method("update_gizmos"): t.update_gizmos()
-		
-		return JSON.stringify({"status": "ok", "message": "Heightmapa importována"})
+		if t.has_method("update_collision"): t.update_collision()
+		return JSON.stringify({"status": "ok", "message": "Heightmapa importována (Height scale: " + str(scale) + ")"})
 	else:
-		return JSON.stringify({"status": "error", "message": "Metoda 'import_images' na Terrain3DData neexistuje (špatná verze pluginu?)"})
+		return JSON.stringify({"status": "error", "message": "Metoda 'import_images' na Terrain3DData neexistuje."})
 
 func terrain_rendering(command: Dictionary) -> String:
 	var t = _get_terrain(command.get("node_path", ""))
@@ -1179,6 +1175,84 @@ func _arr_to_col(arr) -> Color:
 	if typeof(arr) == TYPE_ARRAY and arr.size() >= 3:
 		return Color(float(arr[0]), float(arr[1]), float(arr[2]))
 	return Color(1, 1, 1)
+
+# ============================================================================
+# TERRAIN 3D ADVANCED IO (Importer/Exporter)
+# ============================================================================
+
+func terrain_task(command: Dictionary) -> String:
+	var importer_scene_path = "res://addons/terrain_3d/tools/importer.tscn"
+	if not FileAccess.file_exists(importer_scene_path):
+		return JSON.stringify({"status": "error", "message": "Terrain3D Importer nenalezen (zkontrolujte instalaci pluginu)."})
+	var importer_scene = load(importer_scene_path)
+	var importer = importer_scene.instantiate()
+	var root = EditorInterface.get_edited_scene_root()
+	if not root:
+		importer.free()
+		return JSON.stringify({"status": "error", "message": "Žádná otevřená scéna"})
+	root.add_child(importer)
+	var task_type = command.get("task_type")
+	var map_type = command.get("map_type")
+	var file_path = command.get("file_path", "")
+	var data_dir = command.get("data_dir", "")
+	var p = command.get("params", {})
+	var temp_terrain = ClassDB.instantiate("Terrain3D")
+	if ClassDB.class_exists("Terrain3DData"):
+		var data = ClassDB.instantiate("Terrain3DData")
+		temp_terrain.set("data", data)
+		temp_terrain.set("data_directory", data_dir)
+	importer.set("terrain_node", temp_terrain)
+	var result_msg = ""
+	var success = false
+	if task_type == "import":
+		if map_type == "height":
+			importer.set("height_file_name", file_path)
+		elif map_type == "control":
+			importer.set("control_file_name", file_path)
+		elif map_type == "color":
+			importer.set("color_file_name", file_path)
+		if "position" in p:
+			var pos = p.position
+			importer.set("import_position", Vector3(pos[0], pos[1], pos[2]))
+		if "scale" in p:
+			importer.set("import_scale", float(p.scale))
+		if "offset" in p:
+			importer.set("height_offset", float(p.offset))
+		if "min_height" in p:
+			importer.set("r16_range_min", float(p.min_height))
+		if "max_height" in p:
+			importer.set("r16_range_max", float(p.max_height))
+		if "r16_dim" in p:
+			var dim = p.r16_dim
+			importer.set("r16_size", Vector2i(dim[0], dim[1]))
+		if importer.has_method("run_import"):
+			importer.run_import()
+			result_msg = "Import spuštěn (Heightmap/Color/Control)"
+			success = true
+		else:
+			result_msg = "Importer nemá metodu run_import()"
+	elif task_type == "export":
+		if map_type == "height":
+			importer.set("export_type", 0)
+		elif map_type == "color":
+			importer.set("export_type", 1)
+		elif map_type == "control":
+			importer.set("export_type", 2)
+		importer.set("export_file_name", file_path)
+		if importer.has_method("run_export"):
+			importer.run_export()
+			result_msg = "Export spuštěn do " + file_path
+			success = true
+		else:
+			result_msg = "Importer nemá metodu run_export()"
+	root.remove_child(importer)
+	importer.queue_free()
+	temp_terrain.free()
+	if success:
+		EditorInterface.get_resource_filesystem().scan()
+		return JSON.stringify({"status": "ok", "message": result_msg})
+	else:
+		return JSON.stringify({"status": "error", "message": result_msg})
 
 # ============================================================================
 # PROJECT SETTINGS (PHYSICS LAYERS)

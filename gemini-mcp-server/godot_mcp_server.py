@@ -448,14 +448,19 @@ async def list_tools() -> list[Tool]:
         # ====================================================================
         Tool(
             name="godot_terrain_create",
-            description="Vytvoří nový Terrain3D node. Vyžaduje nainstalovaný plugin Terrain3D.",
+            description="Vytvoří Terrain3D (v1.0+). POZOR: Parametr 'storage_path' je povinný pro správné ukládání dat.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "default": "Terrain3D"},
-                    "parent_path": {"type": "string", "description": "Rodič (prázdné = root)"},
-                    "storage_path": {"type": "string", "description": "Cesta pro uložení dat .res (volitelné, jinak uloženo ve scéně)"}
-                }
+                    "parent_path": {"type": "string"},
+                    "storage_path": {
+                        "type": "string",
+                        "description": "Cesta k ADRESÁŘI pro data (např. res://terrain_data). MUSÍ BÝT VYPLNĚNO.",
+                        "default": "res://terrain_data"
+                    }
+                },
+                "required": ["storage_path"]
             }
         ),
 	Tool(
@@ -522,6 +527,24 @@ async def list_tools() -> list[Tool]:
                     "render_layers": {"type": "integer", "description": "Visual Layers (bitmask). Default: 1"}
                 },
                 "required": ["node_path"]
+            }
+        ),
+        Tool(
+            name="godot_terrain_task",
+            description="Spustí pokročilý Import/Export úkol pro Terrain3D (Heightmapy, ColorMapy, RAW/R16).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "task_type": {"type": "string", "enum": ["import", "export"]},
+                    "map_type": {"type": "string", "enum": ["height", "color", "control"], "description": "Typ mapy."},
+                    "file_path": {"type": "string", "description": "Cesta k souboru (res://... nebo absolutní C:/...)"},
+                    "data_dir": {"type": "string", "description": "Složka s daty terénu (res://terrain_data)."},
+                    "params": {
+                        "type": "object",
+                        "description": "Parametry pro import/export.\nImport: position [x,y,z], scale, offset, min_height, max_height, r16_dim [w,h]\nExport: (žádné speciální parametry)"
+                    }
+                },
+                "required": ["task_type", "map_type", "file_path", "data_dir"]
             }
         ),
         Tool(
@@ -740,6 +763,15 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 "max_height": arguments.get("max_height", 100.0),
                 "position": arguments.get("position", [0, 0, 0])
             }
+        elif name == "godot_terrain_task":
+            command = {
+                "cmd": "terrain_task",
+                "task_type": arguments.get("task_type"),
+                "map_type": arguments.get("map_type"),
+                "file_path": arguments.get("file_path"),
+                "data_dir": arguments.get("data_dir"),
+                "params": arguments.get("params", {})
+            }
 
 
         # --- SCRIPT OPS ---
@@ -775,6 +807,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 result = f"✓ Obsah souboru:\n\n{response['content']}"
             elif "data" in response:
                 result = f"✓ Data:\n{json.dumps(response['data'], indent=2, ensure_ascii=False)}"
+            elif "layers" in response:
+                result = f"✓ Nastavené vrstvy ({response.get('type', '3D')}):\n{json.dumps(response['layers'], indent=2, ensure_ascii=False)}"
             else:
                 result = f"✓ {response.get('message', 'Akce provedena úspěšně')}"
         else:
