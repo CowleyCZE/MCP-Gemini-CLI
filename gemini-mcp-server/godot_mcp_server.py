@@ -548,6 +548,107 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="godot_terrain_add_texture",
+            description="Přidá sadu textur (Albedo + Normal) do palety terénu.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "node_path": {"type": "string"},
+                    "name": {"type": "string", "description": "Název pro identifikaci (např. 'Grass_Green')"},
+                    "albedo_path": {"type": "string", "description": "Cesta k albedo textuře"},
+                    "normal_path": {"type": "string", "description": "Cesta k normal mapě (volitelné)"},
+                    "uv_scale": {"type": "number", "default": 1.0}
+                },
+                "required": ["node_path", "albedo_path"]
+            }
+        ),
+        Tool(
+            name="godot_terrain_add_mesh",
+            description="Registruje 3D model (strom, kámen, tráva) do systému terénu pro pozdější instancování.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "node_path": {"type": "string"},
+                    "mesh_path": {"type": "string", "description": "Cesta k .obj, .glb, .tscn souboru"},
+                    "name": {"type": "string", "description": "Název (např. 'PineTree')"},
+                    "scale_variance": {"type": "number", "default": 0.2, "description": "Náhodná variace velikosti"}
+                },
+                "required": ["node_path", "mesh_path"]
+            }
+        ),
+        Tool(
+            name="godot_terrain_place_instances",
+            description="Rozmístí instance (stromy/trávu) na terén na zadané souřadnice.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "node_path": {"type": "string"},
+                    "mesh_id": {"type": "integer", "description": "ID meshu (vráceno z add_mesh, startuje od 0)"},
+                    "positions": {
+                        "type": "array",
+                        "items": {"type": "array", "items": {"type": "number"}},
+                        "description": "Seznam pozic [[x,y,z], [x,y,z], ...]"
+                    },
+                    "auto_height": {"type": "boolean", "default": True, "description": "Automaticky přichytit k zemi (ignoruje Y v pozici)"}
+                },
+                "required": ["node_path", "mesh_id", "positions"]
+            }
+        ),
+        Tool(
+            name="godot_terrain_bake_navmesh",
+            description="Vypeče Navigační Mesh pro terén (umožní AI agentům chodit).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "node_path": {"type": "string"}
+                },
+                "required": ["node_path"]
+            }
+        ),
+        Tool(
+            name="godot_terrain_raycast",
+            description="Zjistí výšku a pozici na terénu (Physics-free raycast).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "node_path": {"type": "string"},
+                    "x": {"type": "number"},
+                    "z": {"type": "number"}
+                },
+                "required": ["node_path", "x", "z"]
+            }
+        ),
+        Tool(
+            name="godot_2d_create",
+            description="Vytvoří 2D uzel (Sprite2D, Node2D, Label, Control).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "description": "Typ uzlu (např. Sprite2D, Label, Node2D)"},
+                    "name": {"type": "string"},
+                    "parent_path": {"type": "string"},
+                    "position": {"type": "array", "items": {"type": "number"}, "description": "[x, y]"},
+                    "texture_path": {"type": "string", "description": "Pouze pro Sprite2D: cesta k obrázku"},
+                    "text": {"type": "string", "description": "Pouze pro Label/Button: text"}
+                },
+                "required": ["type", "name"]
+            }
+        ),
+        Tool(
+            name="godot_2d_transform",
+            description="Nastaví pozici, rotaci a měřítko pro 2D uzel.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "node_path": {"type": "string"},
+                    "position": {"type": "array", "items": {"type": "number"}, "description": "[x, y]"},
+                    "rotation": {"type": "number", "description": "Úhel ve stupních"},
+                    "scale": {"type": "array", "items": {"type": "number"}, "description": "[x, y]"}
+                },
+                "required": ["node_path"]
+            }
+        ),
+        Tool(
             name="godot_terrain_visuals",
             description="Ovládá vizuální debugování terénu (mřížky, wireframe, heightmapy).",
             inputSchema={
@@ -772,6 +873,27 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 "data_dir": arguments.get("data_dir"),
                 "params": arguments.get("params", {})
             }
+        elif name == "godot_terrain_add_texture":
+            command = arguments.copy()
+            command["cmd"] = "terrain_add_texture"
+        elif name == "godot_terrain_add_mesh":
+            command = arguments.copy()
+            command["cmd"] = "terrain_add_mesh"
+        elif name == "godot_terrain_place_instances":
+            command = arguments.copy()
+            command["cmd"] = "terrain_place_instances"
+        elif name == "godot_terrain_bake_navmesh":
+            command = arguments.copy()
+            command["cmd"] = "terrain_bake_navmesh"
+        elif name == "godot_terrain_raycast":
+            command = arguments.copy()
+            command["cmd"] = "terrain_raycast"
+        elif name == "godot_2d_create":
+            command = arguments.copy()
+            command["cmd"] = "create_node_2d"
+        elif name == "godot_2d_transform":
+            command = arguments.copy()
+            command["cmd"] = "set_transform_2d"
 
 
         # --- SCRIPT OPS ---

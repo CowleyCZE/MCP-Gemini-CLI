@@ -5,6 +5,8 @@ var server: TCPServer
 var clients: Array = []
 var _process_enabled: bool = true
 
+var ops_2d = preload("res://addons/mcp_bridge/ops_2d.gd").new()
+
 func _ready():
 	server = TCPServer.new()
 	var err = server.listen(PORT, "127.0.0.1")
@@ -58,6 +60,8 @@ func process_command(json_string: String) -> String:
 	
 	# Dispatcher příkazů
 	match cmd_type:
+		"create_node_2d", "set_transform_2d", "get_info_2d":
+			return ops_2d.handle_command(cmd_type, command)
 		# --- ENV ---
 		"env_create": return env_create()
 		"env_set_background": return env_set_background(command)
@@ -80,6 +84,11 @@ func process_command(json_string: String) -> String:
 		"terrain_get_height": return terrain_get_height(command)
 		"set_terrain_collision": return set_terrain_collision(command) # Alias pro zpětnou kompatibilitu
 		"terrain_import_heightmap": return terrain_import_heightmap(command)
+		"terrain_add_texture": return terrain_add_texture(command)
+		"terrain_add_mesh": return terrain_add_mesh(command)
+		"terrain_place_instances": return terrain_place_instances(command)
+		"terrain_bake_navmesh": return terrain_bake_navmesh(command)
+		"terrain_raycast": return terrain_raycast(command)
 		"terrain_task": return terrain_task(command)
 		
 		# --- UZLY (bude v další části) ---
@@ -1253,6 +1262,106 @@ func terrain_task(command: Dictionary) -> String:
 		return JSON.stringify({"status": "ok", "message": result_msg})
 	else:
 		return JSON.stringify({"status": "error", "message": result_msg})
+
+# ============================================================================
+# TERRAIN 3D ADVANCED (Assets, Foliage, Nav)
+# ============================================================================
+
+func terrain_add_texture(command: Dictionary) -> String:
+	var t = _get_terrain(command.get("node_path"))
+	if not t: return JSON.stringify({"status": "error", "message": "Terrain3D nenalezen"})
+	var assets = t.get_assets()
+	if not assets: return JSON.stringify({"status": "error", "message": "Chybí Assets"})
+	var albedo_path = command.get("albedo_path", "")
+	var normal_path = command.get("normal_path", "")
+	if not FileAccess.file_exists(albedo_path):
+		return JSON.stringify({"status": "error", "message": "Albedo textura neexistuje"})
+	var tex_asset = ClassDB.instantiate("Terrain3DTextureAsset")
+	tex_asset.name = command.get("name", "NewTexture")
+	tex_asset.albedo = load(albedo_path)
+	if normal_path != "" and FileAccess.file_exists(normal_path):
+		tex_asset.normal = load(normal_path)
+	tex_asset.uv_scale = float(command.get("uv_scale", 1.0))
+	assets.add_texture(tex_asset)
+	var new_id = assets.get_texture_count() - 1
+	return JSON.stringify({"status": "ok", "message": "Textura přidána", "id": new_id})
+
+func terrain_add_mesh(command: Dictionary) -> String:
+	var t = _get_terrain(command.get("node_path"))
+	if not t: return JSON.stringify({"status": "error", "message": "Terrain3D nenalezen"})
+	var assets = t.get_assets()
+	if not assets: return JSON.stringify({"status": "error", "message": "Chybí Assets"})
+	var mesh_path = command.get("mesh_path", "")
+	if not FileAccess.file_exists(mesh_path):
+		return JSON.stringify({"status": "error", "message": "Mesh soubor neexistuje"})
+	var mesh_res = load(mesh_path)
+	if not mesh_res: return JSON.stringify({"status": "error", "message": "Chyba načítání meshe"})
+	var mesh_asset = ClassDB.instantiate("Terrain3DMeshAsset")
+	mesh_asset.name = command.get("name", "Foliage")
+	if mesh_res is PackedScene:
+		mesh_asset.packed_scene = mesh_res
+	elif mesh_res is Mesh:
+		return JSON.stringify({"status": "error", "message": "Prosím použij .tscn nebo .glb soubor (PackedScene)."})
+	mesh_asset.height_offset = 0.0
+	mesh_asset.density = 10.0
+	assets.add_mesh(mesh_asset)
+	var new_id = assets.get_mesh_count() - 1
+	return JSON.stringify({"status": "ok", "message": "Mesh asset registrován", "id": new_id})
+
+func terrain_place_instances(command: Dictionary) -> String:
+	var t = _get_terrain(command.get("node_path"))
+	if not t: return JSON.stringify({"status": "error", "message": "Terrain3D nenalezen"})
+	var instancer = t.get_instancer()
+	if not instancer: return JSON.stringify({"status": "error", "message": "Chybí Instancer"})
+	var mesh_id = int(command.get("mesh_id", 0))
+	var positions = command.get("positions", [])
+	var auto_height = bool(command.get("auto_height", true))
+	var transforms = []
+	for pos_arr in positions:
+		var x = float(pos_arr[0])
+		var y = float(pos_arr[1])
+		var z = float(pos_arr[2])
+		if auto_height:
+			var hit = t.get_intersection(Vector3(x, 10000, z), Vector3.DOWN, false)
+			if hit.z < 3.0e38:
+				y = hit.y
+		var trans = Transform3D()
+		trans.origin = Vector3(x, y, z)
+		transforms.append(trans)
+	if instancer.has_method("add_multimesh"):
+		instancer.add_multimesh(mesh_id, transforms, [])
+		return JSON.stringify({"status": "ok", "message": "Přidáno %d instancí" % transforms.size()})
+	else:
+		return JSON.stringify({"status": "error", "message": "Instancer nemá metodu add_multimesh (nekompatibilní verze?)"})
+
+func terrain_bake_navmesh(command: Dictionary) -> String:
+	var t = _get_terrain(command.get("node_path"))
+	if not t: return JSON.stringify({"status": "error", "message": "Terrain3D nenalezen"})
+	var nav_region = null
+	for child in t.get_children():
+		if child is NavigationRegion3D:
+			nav_region = child
+			break
+	if not nav_region:
+		nav_region = NavigationRegion3D.new()
+		nav_region.name = "NavigationRegion3D"
+		t.add_child(nav_region)
+		nav_region.owner = EditorInterface.get_edited_scene_root()
+		nav_region.navigation_mesh = NavigationMesh.new()
+		nav_region.navigation_mesh.agent_max_climb = 1.0
+		nav_region.navigation_mesh.agent_max_slope = 45.0
+	NavigationMeshGenerator.bake(nav_region.navigation_mesh, nav_region)
+	return JSON.stringify({"status": "ok", "message": "NavMesh bake spuštěn."})
+
+func terrain_raycast(command: Dictionary) -> String:
+	var t = _get_terrain(command.get("node_path"))
+	if not t: return JSON.stringify({"status": "error", "message": "Terrain3D nenalezen"})
+	var x = float(command.get("x", 0))
+	var z = float(command.get("z", 0))
+	var hit = t.get_intersection(Vector3(x, 10000, z), Vector3.DOWN, false)
+	if hit.z > 3.0e38:
+		return JSON.stringify({"status": "ok", "hit": false, "y": 0.0})
+	return JSON.stringify({"status": "ok", "hit": true, "position": [hit.x, hit.y, hit.z], "y": hit.y})
 
 # ============================================================================
 # PROJECT SETTINGS (PHYSICS LAYERS)
