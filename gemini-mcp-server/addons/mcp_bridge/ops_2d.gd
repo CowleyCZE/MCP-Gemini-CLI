@@ -1,94 +1,35 @@
-# res://addons/mcp_bridge/ops_2d.gd
-extends RefCounted
+extends Node
 
-# Hlavní vstupní bod pro tento modul
-func handle_command(cmd_type: String, command: Dictionary) -> String:
-	match cmd_type:
-		"create_node_2d": return create_node_2d(command)
-		"set_transform_2d": return set_transform_2d(command)
-		"get_info_2d": return get_info_2d(command)
-		_: return JSON.stringify({"status": "error", "message": "Neznámý 2D příkaz: " + cmd_type})
+func handle_command(cmd: String, command: Dictionary) -> String:
+	match cmd:
+		"ui_set_layout":
+			return ui_set_layout(command)
+		_: 
+			return JSON.stringify({"status": "error", "message": "Neznámý 2D příkaz"})
 
-# --- IMPLEMENTACE FUNKCÍ ---
-
-func create_node_2d(command: Dictionary) -> String:
-	var type = command.get("type", "Node2D")
-	var name = command.get("name", "New2DNode")
-	var parent_path = command.get("parent_path", "")
-	
-	# Validace, zda jde skutečně o 2D node nebo Control (UI)
-	if not ClassDB.is_parent_class(type, "CanvasItem"):
-		return JSON.stringify({"status": "error", "message": "Typ '%s' není 2D uzel (CanvasItem)." % type})
-	
-	var edited_scene = EditorInterface.get_edited_scene_root()
-	if not edited_scene: return JSON.stringify({"status": "error", "message": "Žádná scéna"})
-	
-	var node = ClassDB.instantiate(type)
-	if not node: return JSON.stringify({"status": "error", "message": "Nelze instanciovat " + type})
-	node.name = name
-	
-	# Speciality pro specifické typy
-	if node is Sprite2D and command.has("texture_path"):
-		var tex = load(command.texture_path)
-		if tex: node.texture = tex
-		
-	if node is Label and command.has("text"):
-		node.text = command.text
-	
-	# Hierarchie
-	var parent = edited_scene
-	if parent_path != "":
-		parent = edited_scene.get_node_or_null(parent_path)
-		if not parent:
-			node.free()
-			return JSON.stringify({"status": "error", "message": "Rodič nenalezen"})
-			
-	parent.add_child(node)
-	node.owner = edited_scene
-	
-	# Pozice
-	if command.has("position"):
-		var p = command.position
-		node.position = Vector2(p[0], p[1])
-		
-	return JSON.stringify({"status": "ok", "message": "2D Node vytvořen", "path": str(node.get_path())})
-
-func set_transform_2d(command: Dictionary) -> String:
+func ui_set_layout(command: Dictionary) -> String:
 	var path = command.get("node_path", "")
+	var preset_str = command.get("preset", "center")
 	var node = EditorInterface.get_edited_scene_root().get_node_or_null(path)
-	
-	if not node or not (node is Node2D or node is Control):
-		return JSON.stringify({"status": "error", "message": "Node2D nenalezen"})
-		
-	if command.has("position"):
-		var p = command.position
-		node.position = Vector2(p[0], p[1])
-		
-	if command.has("rotation"): # Ve stupních
-		node.rotation_degrees = float(command.rotation)
-		
-	if command.has("scale"):
-		var s = command.scale
-		node.scale = Vector2(s[0], s[1])
-		
-	return JSON.stringify({"status": "ok", "message": "Transformace nastavena"})
-
-func get_info_2d(command: Dictionary) -> String:
-	var path = command.get("node_path", "")
-	var node = EditorInterface.get_edited_scene_root().get_node_or_null(path)
-	
-	if not node or not (node is CanvasItem):
-		return JSON.stringify({"status": "error", "message": "Node nenalezen"})
-		
-	var info = {
-		"name": node.name,
-		"type": node.get_class(),
-		"visible": node.visible,
-		"position": [node.position.x, node.position.y]
-	}
-	
-	if node is Node2D:
-		info["rotation"] = node.rotation_degrees
-		info["scale"] = [node.scale.x, node.scale.y]
-		
-	return JSON.stringify({"status": "ok", "info": info})
+	if not node or not (node is Control):
+		return JSON.stringify({"status": "error", "message": "Node není Control (UI)"})
+	var preset = Control.PRESET_CENTER
+	match preset_str:
+		"top_left": preset = Control.PRESET_TOP_LEFT
+		"top_right": preset = Control.PRESET_TOP_RIGHT
+		"bottom_left": preset = Control.PRESET_BOTTOM_LEFT
+		"bottom_right": preset = Control.PRESET_BOTTOM_RIGHT
+		"center_left": preset = Control.PRESET_CENTER_LEFT
+		"center_top": preset = Control.PRESET_CENTER_TOP
+		"center_right": preset = Control.PRESET_CENTER_RIGHT
+		"center_bottom": preset = Control.PRESET_CENTER_BOTTOM
+		"center": preset = Control.PRESET_CENTER
+		"full_rect": preset = Control.PRESET_FULL_RECT
+		"top_wide": preset = Control.PRESET_TOP_WIDE
+		"bottom_wide": preset = Control.PRESET_BOTTOM_WIDE
+		"left_wide": preset = Control.PRESET_LEFT_WIDE
+		"right_wide": preset = Control.PRESET_RIGHT_WIDE
+		"v_center_wide": preset = Control.PRESET_VCENTER_WIDE
+		"h_center_wide": preset = Control.PRESET_HCENTER_WIDE
+	node.set_anchors_preset(preset)
+	return JSON.stringify({"status": "ok", "message": "Layout nastaven na " + preset_str})

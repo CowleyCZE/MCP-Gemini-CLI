@@ -60,6 +60,10 @@ func process_command(json_string: String) -> String:
 	
 	# Dispatcher příkazů
 	match cmd_type:
+		"get_prop": return get_property(command)
+		"call_method": return call_method(command)
+		"connect_signal": return connect_signal(command)
+		"ui_set_layout": return ops_2d.handle_command(cmd_type, command)
 		"create_node_2d", "set_transform_2d", "get_info_2d":
 			return ops_2d.handle_command(cmd_type, command)
 		# --- ENV ---
@@ -504,50 +508,81 @@ func terrain_get_height(command: Dictionary) -> String:
 func create_node(command: Dictionary) -> String:
 	var node_type = command.get("type", "Node3D")
 	var node_name = command.get("name", "NewNode")
-	
-	var parent_path_raw = command.get("parent")
-	var parent_path: String = str(parent_path_raw) if parent_path_raw != null else ""
-	
+	var parent_path = str(command.get("parent", ""))
 	var edited_scene = EditorInterface.get_edited_scene_root()
-	if not edited_scene: 
-		return JSON.stringify({"status": "error", "message": "Žádná otevřená scéna"})
-	
+	if not edited_scene: return JSON.stringify({"status": "error", "message": "Žádná scéna"})
 	var new_node = create_node_by_type(node_type)
-	if not new_node: 
-		return JSON.stringify({"status": "error", "message": "Neplatný typ node: " + node_type})
-	
+	if not new_node: return JSON.stringify({"status": "error", "message": "Neplatný typ"})
 	new_node.name = node_name
-	
 	var parent = edited_scene
 	if parent_path != "":
 		parent = edited_scene.get_node_or_null(parent_path)
 		if not parent:
 			new_node.free()
-			return JSON.stringify({"status": "error", "message": "Parent nenalezen: " + parent_path})
-	
+			return JSON.stringify({"status": "error", "message": "Parent nenalezen"})
 	parent.add_child(new_node)
 	new_node.owner = edited_scene
-	
-	return JSON.stringify({"status": "ok", "message": "Node vytvořen", "path": str(new_node.get_path())})
+	await get_tree().process_frame
+	if is_instance_valid(new_node):
+		return JSON.stringify({"status": "ok", "message": "Node vytvořen", "path": str(new_node.get_path())})
+	else:
+		return JSON.stringify({"status": "error", "message": "Node byl vytvořen, ale ihned zmizel (chyba enginu?)"})
 
 func set_property(command: Dictionary) -> String:
 	var node_path = command.get("path", "")
 	var prop_name = command.get("prop", "")
 	var value = command.get("val")
-	
-	var edited_scene = EditorInterface.get_edited_scene_root()
-	if not edited_scene: return JSON.stringify({"status": "error", "message": "Žádná scéna"})
-	
-	var node = edited_scene.get_node_or_null(node_path)
+	var node = EditorInterface.get_edited_scene_root().get_node_or_null(node_path)
 	if not node: return JSON.stringify({"status": "error", "message": "Node nenalezen"})
-	
 	var converted_value = convert_value(value, prop_name)
-	
-	if prop_name in node:
-		node.set(prop_name, converted_value)
-		return JSON.stringify({"status": "ok", "message": "Vlastnost nastavena"})
-	else:
-		return JSON.stringify({"status": "error", "message": "Vlastnost neexistuje: " + prop_name})
+	node.set_indexed(prop_name, converted_value)
+	return JSON.stringify({"status": "ok", "message": "Vlastnost " + prop_name + " nastavena"})
+
+func get_property(command: Dictionary) -> String:
+	var node_path = command.get("path", "")
+	var prop_name = command.get("prop", "")
+	var node = EditorInterface.get_edited_scene_root().get_node_or_null(node_path)
+	if not node: return JSON.stringify({"status": "error", "message": "Node nenalezen"})
+	var val = node.get_indexed(prop_name)
+	if val is Vector2: val = [val.x, val.y]
+	elif val is Vector3: val = [val.x, val.y, val.z]
+	elif val is Color: val = [val.r, val.g, val.b, val.a]
+	elif val is Object: val = str(val)
+	return JSON.stringify({"status": "ok", "value": val})
+
+func call_method(command: Dictionary) -> String:
+	var path = command.get("path", "")
+	var method = command.get("method", "")
+	var args = command.get("args", [])
+	var node = EditorInterface.get_edited_scene_root().get_node_or_null(path)
+	if not node: return JSON.stringify({"status": "error", "message": "Node nenalezen"})
+	if not node.has_method(method):
+		return JSON.stringify({"status": "error", "message": "Metoda " + method + " neexistuje"})
+	var clean_args = []
+	for arg in args:
+		if typeof(arg) == TYPE_ARRAY and arg.size() == 3:
+			clean_args.append(Vector3(arg[0], arg[1], arg[2]))
+		else:
+			clean_args.append(arg)
+	var result = node.callv(method, clean_args)
+	var str_res = str(result) if result != null else "void"
+	return JSON.stringify({"status": "ok", "result": str_res})
+
+func connect_signal(command: Dictionary) -> String:
+	var src_path = command.get("source_path", "")
+	var sig_name = command.get("signal_name", "")
+	var tgt_path = command.get("target_path", "")
+	var method = command.get("method_name", "")
+	var root = EditorInterface.get_edited_scene_root()
+	var src = root.get_node_or_null(src_path)
+	var tgt = root.get_node_or_null(tgt_path)
+	if not src or not tgt: return JSON.stringify({"status": "error", "message": "Uzly nenalezeny"})
+	if not src.has_signal(sig_name):
+		return JSON.stringify({"status": "error", "message": "Signál " + sig_name + " neexistuje"})
+	if src.is_connected(sig_name, Callable(tgt, method)):
+		return JSON.stringify({"status": "ok", "message": "Již propojeno"})
+	src.connect(sig_name, Callable(tgt, method))
+	return JSON.stringify({"status": "ok", "message": "Signál propojen"})
 
 func reparent_node(command: Dictionary) -> String:
 	var node_path = command.get("path", "")
@@ -684,17 +719,17 @@ func create_scene(command: Dictionary) -> String:
 
 func load_scene(command: Dictionary) -> String:
 	var path = command.get("path", "")
-	if path == "": 
-		return JSON.stringify({"status": "error", "message": "Chybí path"})
-	
-	# Kontrola existence souboru před načtením
 	if not FileAccess.file_exists(path):
-		return JSON.stringify({"status": "error", "message": "Soubor scény neexistuje: " + path})
-	
-	# V Godot 4 tato funkce nevrací hodnotu, prostě ji zavoláme
+		return JSON.stringify({"status": "error", "message": "Soubor neexistuje"})
 	EditorInterface.open_scene_from_path(path)
-	
-	return JSON.stringify({"status": "ok", "message": "Příkaz k načtení scény odeslán"})
+	var max_retries = 20
+	while max_retries > 0:
+		await get_tree().process_frame
+		var current_root = EditorInterface.get_edited_scene_root()
+		if current_root and current_root.scene_file_path == path:
+			break
+		max_retries -= 1
+	return JSON.stringify({"status": "ok", "message": "Scéna načtena a připravena"})
 
 func add_child_scene(command: Dictionary) -> String:
 	var scene_path = command.get("scene_path", "")

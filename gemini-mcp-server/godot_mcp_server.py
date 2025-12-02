@@ -690,6 +690,74 @@ async def list_tools() -> list[Tool]:
                 "required": ["node_path", "x", "z"]
             }
         ),
+        Tool(
+            name="godot_set_property",
+            description="Nastaví vlastnost uzlu. NYNÍ PODPORUJE VNOŘENÉ RESOURCES pomocí dvojtečky (např. 'shape:size', 'mesh:material:albedo_color').",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "node_path": {"type": "string"},
+                    "property_name": {"type": "string", "description": "Název (např. 'position' nebo 'shape:size')"},
+                    "value": {"description": "Hodnota"}
+                },
+                "required": ["node_path", "property_name", "value"]
+            }
+        ),
+        Tool(
+            name="godot_get_property",
+            description="Přečte aktuální hodnotu vlastnosti (i vnořené). Užitečné pro ověření stavu.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "node_path": {"type": "string"},
+                    "property_name": {"type": "string"}
+                },
+                "required": ["node_path", "property_name"]
+            }
+        ),
+        Tool(
+            name="godot_call_method",
+            description="Zavolá libovolnou metodu na uzlu (např. 'look_at', 'apply_impulse').",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "node_path": {"type": "string"},
+                    "method_name": {"type": "string"},
+                    "args": {"type": "array", "items": {}, "description": "Seznam argumentů funkce", "default": []}
+                },
+                "required": ["node_path", "method_name"]
+            }
+        ),
+        Tool(
+            name="godot_connect_signal",
+            description="Propojí signál z jednoho uzlu na metodu jiného uzlu.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_path": {"type": "string", "description": "Kdo vysílá (např. Button)"},
+                    "signal_name": {"type": "string", "description": "Název signálu (např. 'pressed')"},
+                    "target_path": {"type": "string", "description": "Kdo poslouchá"},
+                    "method_name": {"type": "string", "description": "Funkce, co se spustí (např. '_on_button_pressed')"}
+                },
+                "required": ["source_path", "signal_name", "target_path", "method_name"]
+            }
+        ),
+        Tool(
+            name="godot_ui_set_layout",
+            description="Nastaví UI Layout Preset (kotvení) pro Control uzly (např. 'full_rect', 'center', 'top_left').",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "node_path": {"type": "string"},
+                    "preset": {
+                        "type": "string",
+                        "enum": ["top_left", "top_right", "bottom_left", "bottom_right", "center_left", "center_top", "center_right", "center_bottom", "center", "full_rect", "top_wide", "bottom_wide", "left_wide", "right_wide", "v_center_wide", "h_center_wide"],
+                        "description": "Typ layoutu (odpovídá menu Layout v editoru)."
+                    }
+                },
+                "required": ["node_path", "preset"]
+            }
+        ),
 
         # ====================================================================
         # PRÁCE SE SKRIPTY (SCRIPTING)
@@ -894,6 +962,16 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         elif name == "godot_2d_transform":
             command = arguments.copy()
             command["cmd"] = "set_transform_2d"
+        elif name == "godot_set_property":
+            command = {"cmd": "set_property", "path": arguments.get("node_path"), "prop": arguments.get("property_name"), "val": arguments.get("value")}
+        elif name == "godot_get_property":
+            command = {"cmd": "get_prop", "path": arguments.get("node_path"), "prop": arguments.get("property_name")}
+        elif name == "godot_call_method":
+            command = {"cmd": "call_method", "path": arguments.get("node_path"), "method": arguments.get("method_name"), "args": arguments.get("args", [])}
+        elif name == "godot_connect_signal":
+            command = arguments.copy(); command["cmd"] = "connect_signal"
+        elif name == "godot_ui_set_layout":
+            command = arguments.copy(); command["cmd"] = "ui_set_layout"
 
 
         # --- SCRIPT OPS ---
