@@ -40,10 +40,15 @@ func _process(_delta):
 			var data = client.get_utf8_string(available)
 			# Ošetření prázdných dat
 			if data.strip_edges().length() > 0:
-				var response = process_command(data)
-				client.put_data(response.to_utf8_buffer())
+				_handle_client_data(client, data)
 		
 		i += 1
+
+# Pomocná asynchronní funkce pro zpracování požadavku
+func _handle_client_data(client: StreamPeerTCP, data: String):
+	var response = await process_command(data)
+	if client.get_status() == StreamPeerTCP.STATUS_CONNECTED:
+		client.put_data(response.to_utf8_buffer())
 
 func process_command(json_string: String) -> String:
 	var json = JSON.new()
@@ -63,9 +68,10 @@ func process_command(json_string: String) -> String:
 		"get_prop": return get_property(command)
 		"call_method": return call_method(command)
 		"connect_signal": return connect_signal(command)
-		"ui_set_layout": return ops_2d.handle_command(cmd_type, command)
-		"create_node_2d", "set_transform_2d", "get_info_2d":
-			return ops_2d.handle_command(cmd_type, command)
+		"create_node_2d": return await ops_2d.create_node_2d(command)
+		"set_transform_2d": return ops_2d.set_transform_2d(command)
+		"get_info_2d": return ops_2d.get_info_2d(command)
+		"ui_set_layout": return ops_2d.ui_set_layout(command)
 		# --- ENV ---
 		"env_create": return env_create()
 		"env_set_background": return env_set_background(command)
@@ -96,7 +102,7 @@ func process_command(json_string: String) -> String:
 		"terrain_task": return terrain_task(command)
 		
 		# --- UZLY (bude v další části) ---
-		"create_node": return create_node(command)
+		"create_node": return await create_node(command)
 		"set_prop": return set_property(command)
 		"rename_node": return rename_node(command)
 		"delete_node": return delete_node(command)
@@ -109,7 +115,7 @@ func process_command(json_string: String) -> String:
 		"get_scene_tree": return get_scene_tree()
 		"save_scene": return save_scene(command)
 		"create_scene": return create_scene(command)
-		"load_scene": return load_scene(command)
+		"load_scene": return await load_scene(command)
 		"add_child_scene": return add_child_scene(command)
 		
 		# --- MESH A FYZIKA (bude v další části) ---
