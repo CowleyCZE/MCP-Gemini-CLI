@@ -30,38 +30,32 @@ app = Server("godot-editor")
 
 async def send_godot_command(command: dict) -> dict:
     """
-    Asynchronně odešle příkaz na Godot TCP server a čeká na odpověď.
+    Asynchronně odešle příkaz na Godot TCP server s oddělovačem nového řádku.
     """
     try:
-        # Připojení k socketu
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(GODOT_HOST, GODOT_PORT),
             timeout=TIMEOUT
         )
         
-        # Odeslání příkazu
-        json_data = json.dumps(command)
+        # PŘIDÁNÍ ODDĚLOVAČE \n (zásadní pro stabilitu)
+        json_data = json.dumps(command) + "\n"
         writer.write(json_data.encode('utf-8'))
         await writer.drain()
         
-        # Příjem odpovědi
+        # Příjem odpovědi - čteme dokud nenarazíme na konec nebo validní JSON
+        # Pro zjednodušení v Pythonu čteme stream, Godot by měl také odpovídat s ukončením spojení nebo delimiterem
         response_data = b""
         try:
             while True:
-                # Čteme po větších částech (4KB) kvůli potenciálně dlouhým výpisům souborů
-                chunk = await asyncio.wait_for(reader.read(4096), timeout=5.0)
+                chunk = await asyncio.wait_for(reader.read(4096), timeout=TIMEOUT)
                 if not chunk:
                     break
                 response_data += chunk
                 
-                # Pokusíme se parsovat JSON průběžně (pokud přijde v jednom chunku)
-                try:
-                    json.loads(response_data.decode('utf-8'))
-                    break
-                except json.JSONDecodeError:
-                    continue
+                # Zkusíme dekódovat, pokud server uzavřel spojení
         except asyncio.TimeoutError:
-            pass # Pokud vyprší čas na čtení chunku, předpokládáme, že máme vše
+             logger.warning("Timeout při čtení odpovědi.")
         
         writer.close()
         await writer.wait_closed()
@@ -70,14 +64,11 @@ async def send_godot_command(command: dict) -> dict:
             try:
                 return json.loads(response_data.decode('utf-8'))
             except json.JSONDecodeError:
-                return {"status": "error", "message": "Neplatná odpověď od Godot serveru (JSON Error)"}
+                logger.error(f"Raw response: {response_data}")
+                return {"status": "error", "message": "Neplatná odpověď (JSON Error)"}
         else:
             return {"status": "error", "message": "Žádná odpověď od serveru"}
             
-    except asyncio.TimeoutError:
-        return {"status": "error", "message": "Timeout - Godot server neodpovídá"}
-    except ConnectionRefusedError:
-        return {"status": "error", "message": "Nelze se připojit - je Godot plugin aktivní a naslouchá na portu 4242?"}
     except Exception as e:
         logger.error(f"Chyba komunikace: {e}")
         return {"status": "error", "message": f"Chyba komunikace: {str(e)}"}

@@ -1,10 +1,30 @@
 {
+  "security": {
+    "auth": {
+      "selectedType": "oauth-personal"
+    }
+  },
   "mcpServers": {
-    "windows-control": {
-      "command": "python",
+    "godot": {
+      "command": "C:\\Users\\cowle\\Documents\\Github\\MCP-Gemini-CLI\\gemini-mcp-server\\.venv\\Scripts\\python.exe",
       "args": [
-        "windows_control.py"
-      ]
+        "C:\\Users\\cowle\\Documents\\Github\\MCP-Gemini-CLI\\gemini-mcp-server\\godot_mcp_server.py"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONIOENCODING": "utf-8"
+      },
+      "timeout": 30000
+    },
+    "windows-control": {
+      "command": "C:\\Users\\cowle\\Documents\\Github\\MCP-Gemini-CLI\\MCP_Windows\\.venv\\Scripts\\python.exe",
+      "args": [
+        "C:\\Users\\cowle\\Documents\\Github\\MCP-Gemini-CLI\\MCP_Windows\\windows_control.py"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONIOENCODING": "utf-8"
+      }
     }
   }
 }

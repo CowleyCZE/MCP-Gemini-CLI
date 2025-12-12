@@ -3,15 +3,29 @@ This script implements a FastMCP server for Windows GUI automation using pyautog
 It provides tools for controlling the mouse, keyboard, and taking screenshots.
 """
 
+from PIL import Image, ImageDraw, ImageFont
 import os
 import tempfile
 from typing import List
 import base64
 import json
 from pathlib import Path
+import ctypes # <--- NOVÝ IMPORT
 
 import pyautogui
 from fastmcp import FastMCP
+
+# --- Windows DPI Fix (KRITICKÁ OPRAVA PRO PŘESNOST MYŠI) ---
+try:
+    # Zkusíme novější API pro Windows 8.1+
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    try:
+        # Fallback pro starší Windows
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass # Pokud too selže (např. na Linuxu), ignorujeme to
+# -----------------------------------------------------------
 
 # --- Safety ---
 pyautogui.FAILSAFE = True
@@ -19,11 +33,40 @@ pyautogui.FAILSAFE = True
 # --- MCP Server Initialization ---
 mcp = FastMCP(
     name="Windows GUI Control",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 
 # --- Tools ---
+@mcp.tool()
+def mouse_click_scaled(x: int, y: int, original_width: int, original_height: int, screenshot_width: int, screenshot_height: int, button: str = "left", double: bool = False):
+	"""
+	Performs a click using coordinates from a scaled screenshot.
+	Automatically calculates the real screen coordinates.
+	"""
+	try:
+		if screenshot_width == 0 or screenshot_height == 0:
+			return "Error: Screenshot dimensions cannot be zero."
+			
+		scale_x = original_width / screenshot_width
+		scale_y = original_height / screenshot_height
+		
+		real_x = int(x * scale_x)
+		real_y = int(y * scale_y)
+		
+		screen_w, screen_h = pyautogui.size()
+		if real_x > screen_w or real_y > screen_h:
+			return f"Error: Calculated coordinates ({real_x}, {real_y}) are out of screen bounds ({screen_w}, {screen_h}). Check input dimensions."
+		
+		if double:
+			pyautogui.doubleClick(real_x, real_y, button=button)
+			return f"Double-clicked at real coords ({real_x}, {real_y}) [Scaled from {x}, {y}]"
+		else:
+			pyautogui.click(real_x, real_y, button=button)
+			return f"Clicked at real coords ({real_x}, {real_y}) [Scaled from {x}, {y}]"
+	except Exception as e:
+		return f"Error: {str(e)}"
+
 @mcp.tool()
 def mouse_move(x: int, y: int, duration: float = 0.5):
     """
@@ -388,77 +431,87 @@ def delete_file(filepath: str):
 
 
 @mcp.tool()
-def take_screenshot(filename: str = "screenshot.jpg", max_width: int = 640):
+def take_screenshot(
+    filename: str = "screenshot.jpg", 
+    max_width: int = 1024, # Zvýšil jsem default na 1024 pro lepší detaily
+    grid: bool = True      # Nový parametr pro mřížku
+) -> str:
     """
-    Takes a screenshot optimized for AI vision analysis with minimal token usage.
-    Returns base64 encoded image that AI can analyze to determine where to click.
-
-    Args:
-        filename: The desired filename for the screenshot. Defaults to 'screenshot.jpg'.
-        max_width: Maximum width of the resized image. Defaults to 640 pixels.
-
-    Returns:
-        A JSON string with 'filepath', 'image_base64', dimensions, and scale factor.
+    Takes a screenshot. If grid=True, overlays a coordinate grid to help AI accuracy.
     """
     try:
-        # Import PIL here to avoid issues
-        from PIL import Image
-        
-        # Force .jpg extension for better compression
-        if not filename.endswith('.jpg') and not filename.endswith('.jpeg'):
+        # 1. Clean filename & Path (stejné jako předtím)
+        if not filename.endswith(('.jpg', '.jpeg')):
             filename = filename.rsplit('.', 1)[0] + '.jpg'
-        
-        if ".." in filename or "/" in filename or "\\" in filename:
-            filename = "screenshot.jpg"
-
         temp_dir = tempfile.gettempdir()
         filepath = os.path.join(temp_dir, filename)
 
-        # Take screenshot
+        # 2. Capture
         screenshot = pyautogui.screenshot()
-        original_width, original_height = screenshot.size
+        orig_w, orig_h = screenshot.size
         
-        # Convert to RGB (JPEG doesn't support alpha channel)
+        # 3. Convert
         if screenshot.mode != 'RGB':
             screenshot = screenshot.convert('RGB')
         
-        # Resize to reduce token usage while keeping it readable
-        if original_width > max_width:
-            scale_factor = original_width / max_width
-            new_height = int(original_height / scale_factor)
-            # Use LANCZOS (high quality) resampling - value is 1
-            screenshot = screenshot.resize((max_width, new_height), 1)
+        # 4. Resize
+        if orig_w > max_width:
+            scale_factor = orig_w / max_width
+            new_height = int(orig_h / scale_factor)
+            screenshot = screenshot.resize((max_width, new_height), Image.Resampling.LANCZOS)
         else:
             scale_factor = 1.0
-        
-        # Save with balanced JPEG compression
-        screenshot.save(filepath, format='JPEG', optimize=True, quality=60)
 
+        # 5. GRID OVERLAY (VYLEPŠENÍ)
+        if grid:
+            draw = ImageDraw.Draw(screenshot)
+            # Velikost mřížky na zmenšeném obrázku (např. každých 100px)
+            step = 100 
+            w, h = screenshot.size
+            
+            # Kreslení čar
+            for x in range(0, w, step):
+                draw.line([(x, 0), (x, h)], fill=(255, 0, 0), width=1)
+                draw.text((x + 2, 2), str(int(x * scale_factor)), fill=(255, 0, 0)) # Píšeme REÁLNOU souřadnici
+                
+            for y in range(0, h, step):
+                draw.line([(0, y), (w, y)], fill=(255, 0, 0), width=1)
+                draw.text((2, y + 2), str(int(y * scale_factor)), fill=(255, 0, 0))
+
+        # 6. Save
+        screenshot.save(filepath, format='JPEG', optimize=True, quality=70)
+
+        # 7. Encode
         with open(filepath, "rb") as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
         
         output = {
-            "message": f"Screenshot saved to: {filepath}",
-            "filepath": filepath,
+            "message": f"Screenshot saved ({'with grid' if grid else 'clean'}).",
             "image_base64": encoded_string,
-            "original_width": original_width,
-            "original_height": original_height,
-            "resized_width": screenshot.size[0],
-            "resized_height": screenshot.size[1],
+            "original_size": [orig_w, orig_h],
+            "scaled_size": screenshot.size,
             "scale_factor": scale_factor,
-            "note": f"To click at a position you see, multiply coordinates by {scale_factor:.2f}"
+            "note": "Red grid lines show REAL coordinates. Use these numbers for mouse_click."
         }
-
         return json.dumps(output)
     except Exception as e:
-        return json.dumps({"error": f"Error taking screenshot: {e}"})
+        return json.dumps({"error": str(e)})
 
 
 # --- Main Execution ---
 if __name__ == "__main__":
+    import sys
+    
     transport = os.environ.get("MCP_TRANSPORT", "stdio")
-    print(f"Starting Windows GUI Control MCP Server ({transport.upper()} mode)...")
-    print("FAILSAFE is ON. Move mouse to the top-left corner to quit.")
-    host = os.environ.get("MCP_HOST", "127.0.0.1")
-    port = int(os.environ.get("MCP_PORT", "8000"))
-    mcp.run(transport=transport, host=host, port=port)
+    
+    if transport == "sse":
+        host = os.environ.get("MCP_HOST", "127.0.0.1")
+        port = int(os.environ.get("MCP_PORT", "8000"))
+        sys.stderr.write(f"Starting Windows MCP Server on {host}:{port} (SSE)...\n")
+        mcp.run(transport="sse", host=host, port=port)
+    else:
+        # POUZE STDERR LOGY - žádný print do stdout!
+        sys.stderr.write("Starting Windows MCP Server (STDIO)...\n")
+        
+        # DŮLEŽITÉ: show_banner=False zajistí čistý start bez ASCII artu
+        mcp.run(transport="stdio", show_banner=False)
